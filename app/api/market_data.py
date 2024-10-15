@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from app.services.polygon_service import polygon_ws
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user_bearer
 from app.models.user import User
 from app.db.database import get_db
 from app.core.cache import get_cached_data, set_cached_data
@@ -11,7 +11,7 @@ import json
 router = APIRouter()
 
 @router.post("/market-data/subscribe")
-async def subscribe_to_symbols(symbols: List[str], current_user: User = Depends(get_current_user)):
+async def subscribe_to_symbols(symbols: List[str], current_user: User = Depends(get_current_user_bearer)):
     try:
         await polygon_ws.subscribe(symbols)
         return {"message": f"Subscribed to symbols: {', '.join(symbols)}"}
@@ -19,7 +19,7 @@ async def subscribe_to_symbols(symbols: List[str], current_user: User = Depends(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/market-data/unsubscribe")
-async def unsubscribe_from_symbols(symbols: List[str], current_user: User = Depends(get_current_user)):
+async def unsubscribe_from_symbols(symbols: List[str], current_user: User = Depends(get_current_user_bearer)):
     try:
         await polygon_ws.unsubscribe(symbols)
         return {"message": f"Unsubscribed from symbols: {', '.join(symbols)}"}
@@ -27,7 +27,7 @@ async def unsubscribe_from_symbols(symbols: List[str], current_user: User = Depe
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/market-data/subscribed")
-async def get_subscribed_symbols(current_user: User = Depends(get_current_user)):
+async def get_subscribed_symbols(current_user: User = Depends(get_current_user_bearer)):
     return {"subscribed_symbols": list(polygon_ws.subscribed_symbols)}
 
 @router.get("/market-data/historical/{symbol}")
@@ -35,7 +35,7 @@ async def get_historical_data(
     symbol: str,
     start_date: datetime,
     end_date: datetime = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_bearer),
     db = Depends(get_db)
 ):
     if end_date is None:
@@ -58,7 +58,7 @@ async def get_historical_data(
 @router.get("/market-data/latest/{symbol}")
 async def get_latest_data(
     symbol: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_bearer),
     db = Depends(get_db)
 ):
     cache_key = f"latest_data:{symbol}"

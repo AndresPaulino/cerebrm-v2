@@ -1,14 +1,19 @@
 import asyncio
 import websockets
+import logging
 import json
 from app.core.config import settings
 from app.db.database import get_db
 from datetime import datetime
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 class PolygonWebSocket:
     def __init__(self):
         self.ws_url = "wss://delayed.polygon.io/stocks"
         self.api_key = settings.POLYGON_API_KEY
+        logger.info(f"Initialized PolygonWebSocket with API key: {self.api_key[:5]}...")  # Log the first 5 characters of the API key
         self.connection = None
         self.subscribed_symbols = set()
 
@@ -21,12 +26,18 @@ class PolygonWebSocket:
             "action": "auth",
             "params": self.api_key
         }
+        logger.info(f"Sending authentication message: {auth_message}")
         await self.connection.send(json.dumps(auth_message))
         response = await self.connection.recv()
         auth_response = json.loads(response)
-        if auth_response[0]['status'] != "auth_success":
+        logger.info(f"Received authentication response: {auth_response}")
+        
+        # Check for successful connection
+        if auth_response[0]['status'] == 'connected' and auth_response[0]['message'] == 'Connected Successfully':
+            logger.info("Successfully authenticated with Polygon.io")
+        else:
+            logger.error(f"Authentication failed: {auth_response}")
             raise Exception("Authentication failed")
-        print("Successfully authenticated with Polygon.io")
 
     async def subscribe(self, symbols):
         if not isinstance(symbols, list):
@@ -82,8 +93,10 @@ class PolygonWebSocket:
             return result['asset_id']
 
     async def handle_message(self, message):
+        logger.info(f"Received message: {message}")
         for data in message:
             if data['ev'] == 'A':  # Aggregate event
+                logger.info(f"Received data for {data['sym']}: {data}")
                 await self.store_market_data(data)
 
     async def receive_messages(self):
@@ -93,9 +106,11 @@ class PolygonWebSocket:
                 data = json.loads(message)
                 await self.handle_message(data)
             except websockets.exceptions.ConnectionClosed:
-                print("WebSocket connection closed. Attempting to reconnect...")
+                logger.warning("WebSocket connection closed. Attempting to reconnect...")
                 await self.connect()
                 await self.subscribe(list(self.subscribed_symbols))
+            except Exception as e:
+                logger.error(f"Error in receive_messages: {str(e)}", exc_info=True)
 
 polygon_ws = PolygonWebSocket()
 
@@ -113,7 +128,9 @@ async def start_polygon_websocket(symbols):
 # This function would be called when your application starts
 async def run_polygon_websocket():
     symbols = await get_active_symbols()
-    asyncio.create_task(start_polygon_websocket(symbols))
+    if not symbols:
+        symbols = ["AAPL", "TSLA", "NVDA"]  # Default symbols for testing
+    await start_polygon_websocket(symbols)
 
 async def get_active_symbols():
     db = get_db()
