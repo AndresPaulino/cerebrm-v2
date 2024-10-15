@@ -1,11 +1,20 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer
 from app.api import auth, strategies, market_data, schwab
 from app.core.config import settings
 from app.services.polygon_service import run_polygon_websocket
 import asyncio
 
-app = FastAPI(title=settings.PROJECT_NAME, version=settings.PROJECT_VERSION)
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    version=settings.PROJECT_VERSION,
+    openapi_url="/api/v1/openapi.json",
+    docs_url="/api/v1/docs",
+    redoc_url="/api/v1/redoc",
+)
+
+security = HTTPBearer()
 
 # Set up CORS
 app.add_middleware(

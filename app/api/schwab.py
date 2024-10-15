@@ -1,62 +1,88 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.security import HTTPBearer
 from app.db.database import get_db
 from app.models.user import User
 from app.api.auth import get_current_user
-from app.api.auth import get_current_user
 from app.services import schwab_service
+from app.api.schwab_api.client import Client
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 
+security = HTTPBearer()
+
 router = APIRouter()
 
-class SchwabCredentials(BaseModel):
+class SchwabInitialCredentials(BaseModel):
     api_key: str
     api_secret: str
-    access_token: str
-    refresh_token: str
 
-@router.post("/schwab/link-account")
-async def link_schwab_account(
-    credentials: SchwabCredentials,
+class SchwabOAuthCode(BaseModel):
+    code: str
+
+@router.post("/schwab/init-link")
+async def init_schwab_link(
+    credentials: SchwabInitialCredentials,
+    current_user: User = Depends(get_current_user),
+    db = Depends(get_db),
+    token: str = Depends(security)
+):
+    # Save initial credentials
+    await db.execute("""
+        INSERT INTO api_keys (user_id, key_name, api_key, api_secret, last_used)
+        VALUES (:user_id, 'schwab', :api_key, :api_secret, :last_used)
+        ON CONFLICT (user_id, key_name) DO UPDATE
+        SET api_key = :api_key, api_secret = :api_secret, last_used = :last_used
+    """, {
+        "user_id": current_user.user_id,
+        "api_key": credentials.api_key,
+        "api_secret": credentials.api_secret,
+        "last_used": datetime.utcnow().isoformat()
+    })
+
+    # Initialize Schwab client
+    client = Client(current_user.user_id, credentials.api_key, credentials.api_secret, "https://127.0.0.1")
+    
+    # Get the authorization URL
+    auth_url = client.tokens.get_refresh_token_auth_url()
+
+    return {"auth_url": auth_url}
+
+@router.post("/schwab/complete-link")
+async def complete_schwab_link(
+    oauth_code: SchwabOAuthCode,
     current_user: User = Depends(get_current_user),
     db = Depends(get_db)
 ):
-    # Check if user already has Schwab credentials
-    existing_credentials = await db.fetch_one(
+    # Retrieve the saved credentials
+    credentials = await db.fetch_one(
         "SELECT * FROM api_keys WHERE user_id = :user_id AND key_name = 'schwab'",
         {"user_id": current_user.id}
     )
 
-    if existing_credentials:
-        # Update existing credentials
-        await db.execute("""
-            UPDATE api_keys 
-            SET api_key = :api_key, api_secret = :api_secret, 
-                access_token = :access_token, refresh_token = :refresh_token,
-                last_used = :last_used
-            WHERE user_id = :user_id AND key_name = 'schwab'
-        """, {
-            "user_id": current_user.id,
-            "api_key": credentials.api_key,
-            "api_secret": credentials.api_secret,
-            "access_token": credentials.access_token,
-            "refresh_token": credentials.refresh_token,
-            "last_used": datetime.utcnow()
-        })
-    else:
-        # Insert new credentials
-        await db.execute("""
-            INSERT INTO api_keys (user_id, key_name, api_key, api_secret, access_token, refresh_token, last_used)
-            VALUES (:user_id, 'schwab', :api_key, :api_secret, :access_token, :refresh_token, :last_used)
-        """, {
-            "user_id": current_user.id,
-            "api_key": credentials.api_key,
-            "api_secret": credentials.api_secret,
-            "access_token": credentials.access_token,
-            "refresh_token": credentials.refresh_token,
-            "last_used": datetime.utcnow()
-        })
+    if not credentials:
+        raise HTTPException(status_code=400, detail="Schwab linking process not initiated")
+
+    # Initialize Schwab client
+    client = Client(current_user.id, credentials['api_key'], credentials['api_secret'], "https://127.0.0.1")
+
+    # Exchange the code for tokens
+    try:
+        await client.tokens.update_refresh_token_from_code(oauth_code.code)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to exchange code for tokens: {str(e)}")
+
+    # Update the database with the new tokens
+    await db.execute("""
+        UPDATE api_keys
+        SET access_token = :access_token, refresh_token = :refresh_token, last_used = :last_used
+        WHERE user_id = :user_id AND key_name = 'schwab'
+    """, {
+        "user_id": current_user.id,
+        "access_token": client.tokens.access_token,
+        "refresh_token": client.tokens.refresh_token,
+        "last_used": datetime.utcnow()
+    })
 
     return {"message": "Schwab account linked successfully"}
 

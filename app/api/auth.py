@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from app.core.config import settings
 from app.db.database import get_db
 from app.models.user import UserCreate, User, Token
+import pytz
 
 router = APIRouter()
 
@@ -18,11 +19,11 @@ def verify_password(plain_password, hashed_password):
 def get_password_hash(password):
     return pwd_context.hash(password)
 
-def authenticate_user(db, email: str, password: str):
-    user = db.table("users").select("*").eq("email", email).execute().data
+def authenticate_user(db, username: str, password: str):
+    user = db.table("users").select("*").eq("username", username).execute().data
     if not user:
         return False
-    if not verify_password(password, user[0]["password"]):
+    if not user[0] or not verify_password(password, user[0]["password_hash"]):
         return False
     return user[0]
 
@@ -48,7 +49,7 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
         )
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user["email"]}, expires_delta=access_token_expires
+        data={"sub": user["username"]}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
@@ -62,7 +63,13 @@ async def register_user(user: UserCreate):
             detail="Email already registered",
         )
     hashed_password = get_password_hash(user.password)
-    new_user = db.table("users").insert({"email": user.email, "username": user.username, "password": hashed_password}).execute()
+    current_time = datetime.now(pytz.utc).isoformat()
+    new_user = db.table("users").insert({
+        "email": user.email,
+        "username": user.username,
+        "password_hash": hashed_password,
+        "created_at": current_time,
+    }).execute()
     return User(**new_user.data[0])
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
@@ -73,13 +80,13 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     )
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-        email: str = payload.get("sub")
-        if email is None:
+        username: str = payload.get("sub")
+        if username is None:
             raise credentials_exception
     except JWTError:
         raise credentials_exception
     db = get_db()
-    user = db.table("users").select("*").eq("email", email).execute().data
-    if user is None:
+    user = db.table("users").select("*").eq("username", username).execute().data
+    if not user:
         raise credentials_exception
     return User(**user[0])
