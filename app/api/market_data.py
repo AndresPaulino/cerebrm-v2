@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from app.services.polygon_service import polygon_ws, get_real_time_data
+from app.services.polygon_service import polygon_ws
 from app.api.auth import get_current_user
 from app.models.user import User
 from app.db.database import get_db

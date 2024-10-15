@@ -1,10 +1,12 @@
-import aioredis
+import redis
 from app.core.config import settings
+r = redis.Redis(
+  host=settings.REDIS_HOST,
+  port=settings.REDIS_PORT,
+  password=settings.REDIS_PASSWORD)
 
-redis = aioredis.from_url(settings.REDIS_URL, encoding="utf-8", decode_responses=True)
+async def get_cached_data(key: str):
+    return await r.get(key)
 
-async def get_cached_data(key):
-    return await redis.get(key)
-
-async def set_cached_data(key, value, expiration=3600):  # Cache for 1 hour by default
-    await redis.set(key, value, ex=expiration)
+async def set_cached_data(key: str, value: str, expiration: int = 3600):
+    await r.set(key, value, ex=expiration)

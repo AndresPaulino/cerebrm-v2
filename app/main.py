@@ -1,12 +1,3 @@
-import os
-import sys
-
-# Add the project root to the Python path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-print("Current Working Directory:", os.getcwd())
-print("Python path:", sys.path)
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import auth, strategies, market_data, schwab
