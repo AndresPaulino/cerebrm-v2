@@ -1,0 +1,41 @@
+{
+    "name": "Complex Correlation Strategy",
+    "description": "A strategy based on asset correlations and price conditions",
+    "conditions": [
+      {
+        "asset_id": 1,
+        "condition_type": "correlation",
+        "parameter": {
+          "correlated_asset_id": 2,
+          "correlation_threshold": 0.7,
+          "lookback_period": "30d"
+        },
+        "action": "buy"
+      },
+      {
+        "asset_id": 1,
+        "condition_type": "price",
+        "parameter": {
+          "comparison": "greater_than",
+          "value": 100
+        },
+        "action": "buy"
+      },
+      {
+        "asset_id": 1,
+        "condition_type": "profit",
+        "parameter": {
+          "percentage": 5
+        },
+        "action": "sell"
+      },
+      {
+        "asset_id": 1,
+        "condition_type": "loss",
+        "parameter": {
+          "percentage": 2
+        },
+        "action": "sell"
+      }
+    ]
+  }
