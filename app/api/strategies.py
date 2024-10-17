@@ -1,146 +1,77 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+# app/api/strategies.py
+from fastapi import APIRouter, Depends, HTTPException
 from typing import List
+from app.models.strategy import Strategy, StrategyCreate, StrategyComponent
 from app.db.database import get_db
-from app.models.user import User
-from app.models.strategy import Strategy, StrategyCreate, StrategyUpdate, StrategyCondition
-from app.services.schwab_service import execute_trade
 from app.api.auth import get_current_user
 from datetime import datetime
 
 router = APIRouter()
 
 @router.post("/strategies", response_model=Strategy)
-async def create_strategy(
-    strategy: StrategyCreate,
-    current_user: User = Depends(get_current_user),
-    db = Depends(get_db)
-):
-    new_strategy = {
-        "name": strategy.name,
-        "description": strategy.description,
-        "is_active": strategy.is_active,
-        "user_id": current_user.id,
-        "created_at": datetime.utcnow(),
-        "last_modified": datetime.utcnow()
-    }
-    result = db.table("strategies").insert(new_strategy).execute()
-    strategy_id = result.data[0]['id']
-
-    conditions = [
-        {
-            "strategy_id": strategy_id,
-            "asset_id": condition.asset_id,
-            "condition_type": condition.condition_type,
-            "parameter": condition.parameter,
-            "action": condition.action,
-            "created_at": datetime.utcnow()
-        }
-        for condition in strategy.conditions
-    ]
-    db.table("strategy_conditions").insert(conditions).execute()
-
-    return get_strategy(strategy_id, current_user, db)
+async def create_strategy(strategy: StrategyCreate, current_user = Depends(get_current_user), db = Depends(get_db)):
+    new_strategy = strategy.dict()
+    new_strategy['user_id'] = current_user.id
+    new_strategy['created_at'] = datetime.utcnow()
+    new_strategy['updated_at'] = datetime.utcnow()
+    
+    async with db.transaction():
+        strategy_result = await db.fetch_one(
+            """
+            INSERT INTO strategies (name, description, is_active, user_id, additional_config, created_at, updated_at)
+            VALUES (:name, :description, :is_active, :user_id, :additional_config, :created_at, :updated_at)
+            RETURNING *
+            """,
+            {k: v for k, v in new_strategy.items() if k != 'components'}
+        )
+        
+        strategy_id = strategy_result['id']
+        components = []
+        
+        for component in new_strategy['components']:
+            component_result = await db.fetch_one(
+                """
+                INSERT INTO strategy_components (strategy_id, component_type, parameters)
+                VALUES (:strategy_id, :component_type, :parameters)
+                RETURNING *
+                """,
+                {**component.dict(), 'strategy_id': strategy_id}
+            )
+            components.append(StrategyComponent(**component_result))
+    
+    return Strategy(**strategy_result, components=components)
 
 @router.get("/strategies", response_model=List[Strategy])
-async def get_strategies(
-    current_user: User = Depends(get_current_user),
-    db = Depends(get_db)
-):
-    strategies = db.table("strategies").select("*").eq("user_id", current_user.id).execute()
-    strategy_list = []
-    for strategy in strategies.data:
-        conditions = db.table("strategy_conditions").select("*").eq("strategy_id", strategy['id']).execute()
-        strategy['conditions'] = [StrategyCondition(**condition) for condition in conditions.data]
-        strategy_list.append(Strategy(**strategy))
-    return strategy_list
+async def get_strategies(current_user = Depends(get_current_user), db = Depends(get_db)):
+    strategies = await db.fetch_all(
+        "SELECT * FROM strategies WHERE user_id = :user_id",
+        {"user_id": current_user.id}
+    )
+    
+    result = []
+    for strategy in strategies:
+        components = await db.fetch_all(
+            "SELECT * FROM strategy_components WHERE strategy_id = :strategy_id",
+            {"strategy_id": strategy['id']}
+        )
+        result.append(Strategy(**strategy, components=[StrategyComponent(**c) for c in components]))
+    
+    return result
 
 @router.get("/strategies/{strategy_id}", response_model=Strategy)
-async def get_strategy(
-    strategy_id: int,
-    current_user: User = Depends(get_current_user),
-    db = Depends(get_db)
-):
-    strategy = db.table("strategies").select("*").eq("id", strategy_id).eq("user_id", current_user.id).execute()
-    if not strategy.data:
-        raise HTTPException(status_code=404, detail="Strategy not found")
-    
-    conditions = db.table("strategy_conditions").select("*").eq("strategy_id", strategy_id).execute()
-    strategy.data[0]['conditions'] = [StrategyCondition(**condition) for condition in conditions.data]
-    return Strategy(**strategy.data[0])
-
-@router.post("/strategies/{strategy_id}/execute")
-async def execute_strategy(
-    strategy_id: int,
-    current_user: User = Depends(get_current_user),
-    db = Depends(get_db)
-):
+async def get_strategy(strategy_id: int, current_user = Depends(get_current_user), db = Depends(get_db)):
     strategy = await db.fetch_one(
-        "SELECT * FROM strategies WHERE strategy_id = :strategy_id AND user_id = :user_id",
-        {"strategy_id": strategy_id, "user_id": current_user.id}
+        "SELECT * FROM strategies WHERE id = :id AND user_id = :user_id",
+        {"id": strategy_id, "user_id": current_user.id}
     )
-    if not strategy:
-        raise HTTPException(status_code=404, detail="Strategy not found")
-
-    # Here you would evaluate the strategy and generate trade signals
-    # This is a placeholder for the actual implementation
-    trade_details = {
-        "symbol": "AAPL",
-        "action": "buy",
-        "quantity": 10,
-        "price": 150.00
-    }
-
-    try:
-        result = await execute_trade(current_user.id, trade_details)
-        return result
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@router.put("/strategies/{strategy_id}", response_model=Strategy)
-async def update_strategy(
-    strategy_id: int,
-    strategy_update: StrategyUpdate,
-    current_user: User = Depends(get_current_user),
-    db = Depends(get_db)
-):
-    existing_strategy = db.table("strategies").select("*").eq("id", strategy_id).eq("user_id", current_user.id).execute()
-    if not existing_strategy.data:
+    if strategy is None:
         raise HTTPException(status_code=404, detail="Strategy not found")
     
-    updated_strategy = {
-        "name": strategy_update.name,
-        "description": strategy_update.description,
-        "is_active": strategy_update.is_active,
-        "last_modified": datetime.utcnow()
-    }
-    db.table("strategies").update(updated_strategy).eq("id", strategy_id).execute()
+    components = await db.fetch_all(
+        "SELECT * FROM strategy_components WHERE strategy_id = :strategy_id",
+        {"strategy_id": strategy_id}
+    )
+    
+    return Strategy(**strategy, components=[StrategyComponent(**c) for c in components])
 
-    if strategy_update.conditions is not None:
-        db.table("strategy_conditions").delete().eq("strategy_id", strategy_id).execute()
-        new_conditions = [
-            {
-                "strategy_id": strategy_id,
-                "asset_id": condition.asset_id,
-                "condition_type": condition.condition_type,
-                "parameter": condition.parameter,
-                "action": condition.action,
-                "created_at": datetime.utcnow()
-            }
-            for condition in strategy_update.conditions
-        ]
-        db.table("strategy_conditions").insert(new_conditions).execute()
-
-    return get_strategy(strategy_id, current_user, db)
-
-@router.delete("/strategies/{strategy_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_strategy(
-    strategy_id: int,
-    current_user: User = Depends(get_current_user),
-    db = Depends(get_db)
-):
-    strategy = db.table("strategies").select("*").eq("id", strategy_id).eq("user_id", current_user.id).execute()
-    if not strategy.data:
-        raise HTTPException(status_code=404, detail="Strategy not found")
-    db.table("strategy_conditions").delete().eq("strategy_id", strategy_id).execute()
-    db.table("strategies").delete().eq("id", strategy_id).execute()
-    return {"detail": "Strategy deleted successfully"}
+# Add more endpoints for updating and deleting strategies

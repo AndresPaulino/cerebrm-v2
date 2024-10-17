@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer
-from app.api import auth, strategies, market_data, schwab
+from app.api import auth, strategies, market_data, schwab, indicators
 from app.core.config import settings
-from app.services.polygon_service import run_polygon_websocket
+from app.services.polygon_service import run_polygon_websocket, initialize_polygon_websocket
 import asyncio
 
 app = FastAPI(
@@ -30,10 +30,12 @@ app.include_router(auth.router, prefix="/api/v1", tags=["auth"])
 app.include_router(strategies.router, prefix="/api/v1", tags=["strategies"])
 app.include_router(market_data.router, prefix="/api/v1", tags=["market_data"])
 app.include_router(schwab.router, prefix="/api/v1", tags=["schwab"])
+app.include_router(indicators.router, prefix="/api/v1", tags=["indicators"])
 
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(run_polygon_websocket())
+    await initialize_polygon_websocket()
 
 @app.get("/")
 async def root():

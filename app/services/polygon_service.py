@@ -18,8 +18,13 @@ class PolygonWebSocket:
         self.subscribed_symbols = set()
 
     async def connect(self):
-        self.connection = await websockets.connect(self.ws_url)
-        await self.authenticate()
+        try:
+            self.connection = await websockets.connect(self.ws_url)
+            await self.authenticate()
+            logger.info("Successfully connected to Polygon WebSocket")
+        except Exception as e:
+            logger.error(f"Failed to connect to Polygon WebSocket: {str(e)}", exc_info=True)
+            self.connection = None
 
     async def authenticate(self):
         auth_message = {
@@ -115,7 +120,12 @@ class PolygonWebSocket:
 polygon_ws = PolygonWebSocket()
 
 async def initialize_polygon_websocket():
-    await polygon_ws.connect()
+    global polygon_ws
+    try:
+        await polygon_ws.connect()
+        logger.info("Polygon WebSocket initialized and connected")
+    except Exception as e:
+        logger.error(f"Failed to initialize Polygon WebSocket: {str(e)}", exc_info=True)
 
 async def start_polygon_websocket(symbols):
     if not polygon_ws.connection:

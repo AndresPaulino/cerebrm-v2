@@ -1,30 +1,31 @@
-from pydantic import BaseModel, Json
-from typing import List, Optional
+# app/models/strategy.py
+from pydantic import BaseModel, Field
+from typing import List, Dict, Any, Optional
 from datetime import datetime
 
-class StrategyCondition(BaseModel):
-    asset_id: int
-    condition_type: str
-    parameter: Json
-    action: str
+class StrategyComponentBase(BaseModel):
+    component_type: str  # 'indicator', 'entry', 'exit', 'position_sizing', 'risk_management'
+    parameters: Dict[str, Any]
+
+class StrategyComponent(StrategyComponentBase):
+    id: int
 
 class StrategyBase(BaseModel):
     name: str
     description: str
     is_active: bool = True
+    components: List[StrategyComponentBase]
+    additional_config: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 class StrategyCreate(StrategyBase):
-    conditions: List[StrategyCondition]
-
-class StrategyUpdate(StrategyBase):
-    conditions: Optional[List[StrategyCondition]]
+    pass
 
 class Strategy(StrategyBase):
     id: int
     user_id: int
+    components: List[StrategyComponent]
     created_at: datetime
-    last_modified: datetime
-    conditions: List[StrategyCondition]
+    updated_at: datetime
 
     class Config:
         orm_mode = True

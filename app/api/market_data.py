@@ -1,4 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+import logging
 from app.services.polygon_service import polygon_ws
 from app.api.auth import get_current_user_bearer
 from app.models.user import User
@@ -9,13 +11,27 @@ from datetime import datetime, timedelta
 import json
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+class SymbolList(BaseModel):
+    symbols: List[str]
 
 @router.post("/market-data/subscribe")
-async def subscribe_to_symbols(symbols: List[str], current_user: User = Depends(get_current_user_bearer)):
+async def subscribe_to_symbols(symbol_list: SymbolList, current_user: User = Depends(get_current_user_bearer)):
     try:
-        await polygon_ws.subscribe(symbols)
-        return {"message": f"Subscribed to symbols: {', '.join(symbols)}"}
+        if polygon_ws is None:
+            logger.error("polygon_ws is None")
+            raise HTTPException(status_code=500, detail="WebSocket not initialized")
+        
+        if polygon_ws.connection is None:
+            logger.error("polygon_ws.connection is None")
+            raise HTTPException(status_code=500, detail="WebSocket connection not established")
+        
+        logger.info(f"Attempting to subscribe to symbols: {symbol_list.symbols}")
+        await polygon_ws.subscribe(symbol_list.symbols)
+        return {"message": f"Subscribed to symbols: {', '.join(symbol_list.symbols)}"}
     except Exception as e:
+        logger.error(f"Error in subscribe_to_symbols: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/market-data/unsubscribe")
