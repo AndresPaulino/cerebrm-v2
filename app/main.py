@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer
 from app.api import auth, strategies, market_data, schwab, indicators
 from app.core.config import settings
-from app.services.polygon_service import run_polygon_websocket, initialize_polygon_websocket
+from app.services.polygon_service import initialize_polygon_websocket, run_polygon_websocket, shutdown_polygon_websocket
 import asyncio
 
 app = FastAPI(
@@ -34,8 +34,12 @@ app.include_router(indicators.router, prefix="/api/v1", tags=["indicators"])
 
 @app.on_event("startup")
 async def startup_event():
-    asyncio.create_task(run_polygon_websocket())
     await initialize_polygon_websocket()
+    asyncio.create_task(run_polygon_websocket())
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    await shutdown_polygon_websocket()
 
 @app.get("/")
 async def root():
