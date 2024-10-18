@@ -126,7 +126,7 @@ class Tokens:
                 "user_id": self.user_id,
                 "access_token": self.access_token,
                 "refresh_token": self.refresh_token,
-                "last_used": datetime.datetime.utcnow()
+                "last_used": datetime.datetime.now(datetime.UTC)
             })
             logger.info("Tokens successfully written to database")
         except Exception as e:

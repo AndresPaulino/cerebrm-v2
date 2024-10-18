@@ -4,21 +4,28 @@ from httpx import AsyncClient
 from app.main import app
 from app.api.auth import create_access_token
 from app.models.user import User
+from datetime import datetime, timezone
 
 @pytest.fixture
 def test_user():
-    return User(id=1, email="test@example.com", username="testuser")
+    return User(
+        user_id=1,
+        username="testuser",
+        email="test@example.com",
+        created_at=datetime.now(timezone.utc).isoformat()
+    )
 
 @pytest.fixture
 def access_token(test_user):
-    return create_access_token(data={"sub": test_user.email})
+    return create_access_token(data={"sub": str(test_user.user_id)})
 
 @pytest.fixture
 async def authorized_client(access_token):
-    async with AsyncClient(app=app, base_url="http://test") as ac:
-        ac.headers.update({"Authorization": f"Bearer {access_token}"})
-        yield ac
+    async with AsyncClient(app=app, base_url="http://test") as client:
+        client.headers.update({"Authorization": f"Bearer {access_token}"})
+        yield client
 
+@pytest.mark.asyncio
 async def test_create_simple_strategy(authorized_client):
     strategy_data = {
         "name": "Simple Stock Strategy",
@@ -61,11 +68,14 @@ async def test_create_simple_strategy(authorized_client):
     }
 
     response = await authorized_client.post("/api/v1/strategies", json=strategy_data)
+    print(f"Response status: {response.status_code}")
+    print(f"Response body: {response.text}")
     assert response.status_code == 200
     created_strategy = response.json()
     assert created_strategy["name"] == strategy_data["name"]
     assert len(created_strategy["components"]) == 2
 
+@pytest.mark.asyncio
 async def test_create_multi_asset_strategy(authorized_client):
     strategy_data = {
         "name": "Multi-Asset Strategy",
@@ -111,11 +121,14 @@ async def test_create_multi_asset_strategy(authorized_client):
     }
 
     response = await authorized_client.post("/api/v1/strategies", json=strategy_data)
+    print(f"Response status: {response.status_code}")
+    print(f"Response body: {response.text}")
     assert response.status_code == 200
     created_strategy = response.json()
     assert created_strategy["name"] == strategy_data["name"]
     assert len(created_strategy["asset_filters"]) == 2
 
+@pytest.mark.asyncio
 async def test_create_complex_strategy(authorized_client):
     strategy_data = {
         "name": "Complex Trading Strategy",
@@ -179,6 +192,8 @@ async def test_create_complex_strategy(authorized_client):
     }
 
     response = await authorized_client.post("/api/v1/strategies", json=strategy_data)
+    print(f"Response status: {response.status_code}")
+    print(f"Response body: {response.text}")
     assert response.status_code == 200
     created_strategy = response.json()
     assert created_strategy["name"] == strategy_data["name"]

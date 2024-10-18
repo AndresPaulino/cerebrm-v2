@@ -15,10 +15,12 @@ class UserInDB(UserBase):
     created_at: str
     last_login: Optional[str] = None
 
-class User(UserBase):
+class User(BaseModel):
     user_id: int
-    created_at: str
-    last_login: Optional[str] = None
+    username: str
+    email: EmailStr
+    created_at: datetime
+    last_login: datetime | None = None
 
 class Token(BaseModel):
     access_token: str

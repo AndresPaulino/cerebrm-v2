@@ -4,43 +4,60 @@ from typing import List
 from app.models.strategy import Strategy, StrategyCreate, StrategyComponent
 from app.db.database import get_db
 from app.api.auth import get_current_user
-from datetime import datetime
-from app.services import indicators
+from datetime import datetime, timezone
+
+router = APIRouter()
+
+from fastapi import APIRouter, Depends, HTTPException
+from typing import List
+from app.models.strategy import Strategy, StrategyCreate, StrategyComponent
+from app.db.database import get_db
+from app.api.auth import get_current_user
+from datetime import datetime, timezone
 
 router = APIRouter()
 
 @router.post("/strategies", response_model=Strategy)
 async def create_strategy(strategy: StrategyCreate, current_user = Depends(get_current_user), db = Depends(get_db)):
-    new_strategy = strategy.dict()
-    new_strategy['user_id'] = current_user.id
-    new_strategy['created_at'] = datetime.utcnow()
-    new_strategy['updated_at'] = datetime.utcnow()
-    
-    async with db.transaction():
-        strategy_result = await db.fetch_one(
-            """
-            INSERT INTO strategies (name, description, is_active, user_id, asset_filters, additional_config, created_at, updated_at)
-            VALUES (:name, :description, :is_active, :user_id, :asset_filters, :additional_config, :created_at, :updated_at)
-            RETURNING *
-            """,
-            {k: v for k, v in new_strategy.items() if k != 'components'}
-        )
+    try:
+        new_strategy = strategy.dict()
+        new_strategy['user_id'] = current_user.user_id
+        new_strategy['created_at'] = datetime.now(timezone.utc)
+        new_strategy['updated_at'] = datetime.now(timezone.utc)
         
-        strategy_id = strategy_result['id']
+        # Insert the strategy
+        strategy_result = db.table("strategies").insert({
+            "name": new_strategy['name'],
+            "description": new_strategy['description'],
+            "is_active": new_strategy['is_active'],
+            "user_id": new_strategy['user_id'],
+            "asset_filters": new_strategy['asset_filters'],
+            "additional_config": new_strategy['additional_config'],
+            "created_at": new_strategy['created_at'],
+            "updated_at": new_strategy['updated_at']
+        }).execute()
+        
+        strategy_id = strategy_result.data[0]['id']
         components = []
         
+        # Insert the components
         for component in new_strategy['components']:
-            component_result = await db.fetch_one(
-                """
-                INSERT INTO strategy_components (strategy_id, component_type, conditions, exit_conditions, parameters)
-                VALUES (:strategy_id, :component_type, :conditions, :exit_conditions, :parameters)
-                RETURNING *
-                """,
-                {**component.dict(), 'strategy_id': strategy_id}
-            )
-            components.append(StrategyComponent(**component_result))
+            component_result = db.table("strategy_components").insert({
+                "strategy_id": strategy_id,
+                "component_type": component['component_type'],
+                "conditions": component.get('conditions', []),
+                "exit_conditions": component.get('exit_conditions', []),
+                "parameters": component['parameters']
+            }).execute()
+            components.append(StrategyComponent(**component_result.data[0]))
     
-    return Strategy(**strategy_result, components=components)
+        return Strategy(**new_strategy, id=strategy_id, components=components)
+    except Exception as e:
+        print(f"Error creating strategy: {str(e)}")
+        print(f"Strategy data: {new_strategy}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Error creating strategy: {str(e)}")
 
 @router.get("/strategies", response_model=List[Strategy])
 async def get_strategies(current_user = Depends(get_current_user), db = Depends(get_db)):

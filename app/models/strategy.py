@@ -4,24 +4,23 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 class AssetFilter(BaseModel):
-    type: str  # e.g., "sector", "market_cap", "custom_list"
+    type: str  # e.g., "symbol", "sector", "market_cap", "custom_list"
     value: Any
 
 class Condition(BaseModel):
-    type: str  # e.g., "technical_indicator", "price", "time"
-    indicator: Optional[str]  # e.g., "SMA", "EMA", "RSI"
-    comparison: str  # e.g., "greater_than", "less_than", "equal_to"
+    type: str  # e.g., "price_change", "technical_indicator", "time"
+    indicator: Optional[str] = None  # e.g., "SMA", "EMA", "RSI"
+    comparison: str  # e.g., "greater_than", "less_than", "crosses_above"
     value: Any
-    time_restriction: Optional[Dict[str, Any]]  # e.g., {"start": "09:30", "end": "16:00"}
 
 class ExitCondition(BaseModel):
     type: str  # e.g., "take_profit", "stop_loss", "trailing_stop", "time_based"
     value: Any
 
 class StrategyComponentBase(BaseModel):
-    component_type: str  # 'entry', 'exit', 'position_sizing', 'risk_management'
-    conditions: List[Condition]
-    exit_conditions: List[ExitCondition]
+    component_type: str  # 'entry', 'exit'
+    conditions: Optional[List[Condition]] = []
+    exit_conditions: Optional[List[ExitCondition]] = []
     parameters: Dict[str, Any]
 
 class StrategyComponent(StrategyComponentBase):
@@ -46,4 +45,4 @@ class Strategy(StrategyBase):
     updated_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True  # This replaces orm_mode = True in Pydantic v2

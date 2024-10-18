@@ -32,14 +32,15 @@ app.include_router(market_data.router, prefix="/api/v1", tags=["market_data"])
 app.include_router(schwab.router, prefix="/api/v1", tags=["schwab"])
 app.include_router(indicators.router, prefix="/api/v1", tags=["indicators"])
 
-@app.on_event("startup")
-async def startup_event():
-    await initialize_polygon_websocket()
-    asyncio.create_task(run_polygon_websocket())
+def lifespan(app: FastAPI):
+    async def startup_event():
+        await initialize_polygon_websocket()
+        asyncio.create_task(run_polygon_websocket())
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    await shutdown_polygon_websocket()
+    async def shutdown_event():
+        await shutdown_polygon_websocket()
+
+    return startup_event, shutdown_event
 
 @app.get("/")
 async def root():

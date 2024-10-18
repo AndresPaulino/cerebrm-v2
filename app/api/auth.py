@@ -3,7 +3,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm, HT
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from app.core.config import settings
 from app.db.database import get_db
 from app.models.user import UserCreate, User, Token
@@ -35,9 +35,9 @@ def authenticate_user(db, username: str, password: str):
 def create_access_token(data: dict, expires_delta: timedelta = None):
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     return encoded_jwt
@@ -85,16 +85,19 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     )
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
+        user_id: str = payload.get("sub")
+        if user_id is None:
             raise credentials_exception
     except JWTError:
         raise credentials_exception
+    
     db = get_db()
-    user = db.table("users").select("*").eq("username", username).execute().data
-    if not user:
+    user = db.table("users").select("*").eq("user_id", user_id).execute()
+    
+    if not user.data:
         raise credentials_exception
-    return User(**user[0])
+    
+    return User(**user.data[0])
 
 async def get_current_user_bearer(credentials: HTTPAuthorizationCredentials = Depends(security)):
     try:
