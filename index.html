@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Advanced Strategy Builder</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+        .header { background: #f0f0f0; padding: 10px; display: flex; justify-content: space-between; }
+        .main { display: flex; height: calc(100vh - 100px); }
+        .sidebar { width: 200px; background: #e0e0e0; padding: 10px; overflow-y: auto; }
+        .content { flex-grow: 1; padding: 10px; display: flex; flex-direction: column; }
+        .toolbar { background: #d0d0d0; padding: 10px; margin-bottom: 10px; }
+        .component { border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; }
+        .footer { background: #f0f0f0; padding: 10px; text-align: center; }
+        button { margin-right: 5px; }
+        .collapsible { cursor: pointer; padding: 5px; background-color: #777; color: white; }
+        .collapsible:after { content: '\002B'; float: right; }
+        .active:after { content: "\2212"; }
+        .collapsible-content { max-height: 0; overflow: hidden; transition: max-height 0.2s ease-out; }
+        #chartContainer { height: 300px; margin-top: 20px; }
+        .strategy-canvas { flex-grow: 1; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <strong>Enhanced Advanced Strategy Builder</strong>
+        </div>
+        <div>
+            User Profile | Notifications
+        </div>
+    </div>
+    <div class="main">
+        <div class="sidebar">
+            <h3>Strategy Outline</h3>
+            <ul id="strategyOutline">
+                <!-- Strategy steps will be added here dynamically -->
+            </ul>
+        </div>
+        <div class="content">
+            <div class="toolbar">
+                <button onclick="addComponent('assetSelection')">Asset Selection</button>
+                <button onclick="addComponent('indicator')">Indicator</button>
+                <button onclick="addComponent('condition')">Condition</button>
+                <button onclick="addComponent('action')">Action</button>
+            </div>
+            <div id="strategyCanvas" class="strategy-canvas">
+                <!-- Strategy components will be added here dynamically -->
+            </div>
+            <div id="chartContainer">
+                <canvas id="performanceChart"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="footer">
+        <button onclick="saveStrategy()">Save Strategy</button>
+        <button onclick="runBacktest()">Run Backtest</button>
+        <button onclick="optimizeStrategy()">Optimize</button>
+        <button onclick="deployStrategy()">Deploy to Live Trading</button>
+    </div>
+
+    <script>
+        let strategySteps = [];
+        let chart;
+
+        function addComponent(type) {
+            const canvas = document.getElementById('strategyCanvas');
+            const component = document.createElement('div');
+            component.className = 'component';
+            let content = '';
+
+            switch(type) {
+                case 'assetSelection':
+                    content = `
+                        <button class="collapsible">Dynamic Asset Selection</button>
+                        <div class="collapsible-content">
+                            <input type="text" placeholder="Search Assets">
+                            <button onclick="setCriteria()">Set Criteria</button>
+                            <button onclick="previewAssets()">Preview</button>
+                            <div>
+                                <h5>Selected Assets:</h5>
+                                <ul id="selectedAssets"></ul>
+                            </div>
+                        </div>
+                    `;
+                    strategySteps.push('Asset Selection');
+                    break;
+                case 'indicator':
+                    content = `
+                        <button class="collapsible">Indicator</button>
+                        <div class="collapsible-content">
+                            <select id="indicatorType" onchange="updateIndicatorParams()">
+                                <option value="ma">Moving Average</option>
+                                <option value="rsi">RSI</option>
+                                <option value="macd">MACD</option>
+                            </select>
+                            <div id="indicatorParams">
+                                <input type="number" placeholder="Period" value="14">
+                            </div>
+                        </div>
+                    `;
+                    strategySteps.push('Indicator');
+                    break;
+                case 'condition':
+                    content = `
+                        <button class="collapsible">Condition</button>
+                        <div class="collapsible-content">
+                            <select>
+                                <option>Greater Than</option>
+                                <option>Less Than</option>
+                                <option>Equals</option>
+                                <option>Crosses Above</option>
+                                <option>Crosses Below</option>
+                            </select>
+                            <input type="number" placeholder="Value">
+                            <select>
+                                <option>Price</option>
+                                <option>Volume</option>
+                                <option>Indicator Value</option>
+                            </select>
+                        </div>
+                    `;
+                    strategySteps.push('Condition');
+                    break;
+                case 'action':
+                    content = `
+                        <button class="collapsible">Trade Action</button>
+                        <div class="collapsible-content">
+                            <select>
+                                <option>Buy</option>
+                                <option>Sell</option>
+                                <option>Short</option>
+                                <option>Cover</option>
+                            </select>
+                            <input type="number" placeholder="Size">
+                            <div>
+                                <label>Stop Loss:</label>
+                                <input type="number" placeholder="%">
+                            </div>
+                            <div>
+                                <label>Take Profit:</label>
+                                <input type="number" placeholder="%">
+                            </div>
+                        </div>
+                    `;
+                    strategySteps.push('Action');
+                    break;
+            }
+
+            component.innerHTML = content;
+            canvas.appendChild(component);
+            updateStrategyOutline();
+            setupCollapsibles();
+        }
+
+        function setupCollapsibles() {
+            var coll = document.getElementsByClassName("collapsible");
+            for (var i = 0; i < coll.length; i++) {
+                coll[i].addEventListener("click", function() {
+                    this.classList.toggle("active");
+                    var content = this.nextElementSibling;
+                    if (content.style.maxHeight){
+                        content.style.maxHeight = null;
+                    } else {
+                        content.style.maxHeight = content.scrollHeight + "px";
+                    } 
+                });
+            }
+        }
+
+        function updateStrategyOutline() {
+            const outline = document.getElementById('strategyOutline');
+            outline.innerHTML = '';
+            strategySteps.forEach((step, index) => {
+                const li = document.createElement('li');
+                li.textContent = `${index + 1}. ${step}`;
+                outline.appendChild(li);
+            });
+        }
+
+        function updateIndicatorParams() {
+            const type = document.getElementById('indicatorType').value;
+            const paramsDiv = document.getElementById('indicatorParams');
+            switch(type) {
+                case 'ma':
+                    paramsDiv.innerHTML = '<input type="number" placeholder="Period" value="14">';
+                    break;
+                case 'rsi':
+                    paramsDiv.innerHTML = '<input type="number" placeholder="Period" value="14">';
+                    break;
+                case 'macd':
+                    paramsDiv.innerHTML = `
+                        <input type="number" placeholder="Fast Period" value="12">
+                        <input type="number" placeholder="Slow Period" value="26">
+                        <input type="number" placeholder="Signal Period" value="9">
+                    `;
+                    break;
+            }
+        }
+
+        function setCriteria() {
+            const criteria = prompt("Enter asset selection criteria (e.g., 'Market Cap > 1B AND Sector = Technology'):");
+            if (criteria) {
+                const assetsList = document.getElementById('selectedAssets');
+                assetsList.innerHTML = '';
+                ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'FB'].forEach(asset => {
+                    const li = document.createElement('li');
+                    li.textContent = asset;
+                    assetsList.appendChild(li);
+                });
+            }
+        }
+
+        function previewAssets() {
+            alert('Previewing selected assets...');
+        }
+
+        function saveStrategy() {
+            alert('Strategy saved!');
+        }
+
+        function runBacktest() {
+            alert('Running backtest...');
+            updatePerformanceChart();
+        }
+
+        function optimizeStrategy() {
+            alert('Optimizing strategy...');
+        }
+
+        function deployStrategy() {
+            alert('Deploying strategy to live trading...');
+        }
+
+        function updatePerformanceChart() {
+            const ctx = document.getElementById('performanceChart').getContext('2d');
+            if (chart) {
+                chart.destroy();
+            }
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+                    datasets: [{
+                        label: 'Strategy Performance',
+                        data: [12, 19, 3, 5, 2, 3],
+                        borderColor: 'rgb(75, 192, 192)',
+                        tension: 0.1
+                    }, {
+                        label: 'Benchmark',
+                        data: [7, 11, 5, 8, 3, 7],
+                        borderColor: 'rgb(255, 99, 132)',
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false
+                }
+            });
+        }
+
+        // Initialize performance chart
+        updatePerformanceChart();
+    </script>
+</body>
+</html>

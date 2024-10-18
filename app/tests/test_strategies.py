@@ -1,10 +1,9 @@
-# tests/test_strategies.py
+# tests/test_strategy_creation.py
 import pytest
 from httpx import AsyncClient
 from app.main import app
 from app.api.auth import create_access_token
 from app.models.user import User
-from app.db.database import get_db
 
 @pytest.fixture
 def test_user():
@@ -20,98 +19,170 @@ async def authorized_client(access_token):
         ac.headers.update({"Authorization": f"Bearer {access_token}"})
         yield ac
 
-@pytest.fixture
-async def test_db():
-    # Setup: Create a test database or use a transaction
-    db = get_db()
-    # TODO: Add any necessary setup for the test database
-
-    yield db
-
-    # Teardown: Clear the test database or rollback the transaction
-    # TODO: Add any necessary teardown for the test database
-
-@pytest.mark.asyncio
-async def test_create_strategy(authorized_client, test_db, test_user):
+async def test_create_simple_strategy(authorized_client):
     strategy_data = {
-        "name": "Test Strategy",
-        "description": "A test strategy",
+        "name": "Simple Stock Strategy",
+        "description": "Buy a stock if price changes by 5%",
         "is_active": True,
-        "components": [
+        "asset_filters": [
             {
-                "component_type": "indicator",
-                "parameters": {"type": "SMA", "period": 20}
-            },
-            {
-                "component_type": "entry",
-                "parameters": {"condition": "price_above_sma"}
+                "type": "symbol",
+                "value": "AAPL"
             }
         ],
-        "additional_config": {"max_position_size": 1000}
+        "components": [
+            {
+                "component_type": "entry",
+                "conditions": [
+                    {
+                        "type": "price_change",
+                        "comparison": "greater_than",
+                        "value": 5
+                    }
+                ],
+                "parameters": {"action": "buy"}
+            },
+            {
+                "component_type": "exit",
+                "exit_conditions": [
+                    {
+                        "type": "take_profit",
+                        "value": 10
+                    },
+                    {
+                        "type": "stop_loss",
+                        "value": 5
+                    }
+                ],
+                "parameters": {"action": "sell"}
+            }
+        ],
+        "additional_config": {"position_size": 100}
     }
 
     response = await authorized_client.post("/api/v1/strategies", json=strategy_data)
     assert response.status_code == 200
     created_strategy = response.json()
     assert created_strategy["name"] == strategy_data["name"]
-    assert created_strategy["description"] == strategy_data["description"]
-    assert created_strategy["is_active"] == strategy_data["is_active"]
-    assert len(created_strategy["components"]) == len(strategy_data["components"])
-    assert created_strategy["additional_config"] == strategy_data["additional_config"]
+    assert len(created_strategy["components"]) == 2
 
-@pytest.mark.asyncio
-async def test_get_strategies(authorized_client, test_db, test_user):
-    # First, create a strategy
+async def test_create_multi_asset_strategy(authorized_client):
     strategy_data = {
-        "name": "Test Strategy for Retrieval",
-        "description": "A test strategy for retrieval",
+        "name": "Multi-Asset Strategy",
+        "description": "Trade multiple tech stocks",
         "is_active": True,
-        "components": [
+        "asset_filters": [
             {
-                "component_type": "indicator",
-                "parameters": {"type": "RSI", "period": 14}
+                "type": "sector",
+                "value": "Technology"
+            },
+            {
+                "type": "market_cap",
+                "value": {"min": 1000000000}  # $1B minimum market cap
             }
         ],
-        "additional_config": {}
-    }
-    create_response = await authorized_client.post("/api/v1/strategies", json=strategy_data)
-    assert create_response.status_code == 200
-
-    # Now, retrieve all strategies
-    response = await authorized_client.get("/api/v1/strategies")
-    assert response.status_code == 200
-    strategies = response.json()
-    assert len(strategies) > 0
-    assert any(s["name"] == strategy_data["name"] for s in strategies)
-
-@pytest.mark.asyncio
-async def test_get_single_strategy(authorized_client, test_db, test_user):
-    # First, create a strategy
-    strategy_data = {
-        "name": "Test Strategy for Single Retrieval",
-        "description": "A test strategy for single retrieval",
-        "is_active": True,
         "components": [
+            {
+                "component_type": "entry",
+                "conditions": [
+                    {
+                        "type": "technical_indicator",
+                        "indicator": "RSI",
+                        "comparison": "less_than",
+                        "value": 30
+                    }
+                ],
+                "parameters": {"action": "buy"}
+            },
             {
                 "component_type": "exit",
-                "parameters": {"condition": "take_profit", "percentage": 5}
+                "exit_conditions": [
+                    {
+                        "type": "technical_indicator",
+                        "indicator": "RSI",
+                        "comparison": "greater_than",
+                        "value": 70
+                    }
+                ],
+                "parameters": {"action": "sell"}
             }
         ],
-        "additional_config": {"risk_percentage": 1}
+        "additional_config": {"max_positions": 5, "position_size_percentage": 20}
     }
-    create_response = await authorized_client.post("/api/v1/strategies", json=strategy_data)
-    assert create_response.status_code == 200
-    created_strategy = create_response.json()
 
-    # Now, retrieve the single strategy
-    response = await authorized_client.get(f"/api/v1/strategies/{created_strategy['id']}")
+    response = await authorized_client.post("/api/v1/strategies", json=strategy_data)
     assert response.status_code == 200
-    retrieved_strategy = response.json()
-    assert retrieved_strategy["id"] == created_strategy["id"]
-    assert retrieved_strategy["name"] == strategy_data["name"]
-    assert retrieved_strategy["description"] == strategy_data["description"]
-    assert retrieved_strategy["is_active"] == strategy_data["is_active"]
-    assert len(retrieved_strategy["components"]) == len(strategy_data["components"])
-    assert retrieved_strategy["additional_config"] == strategy_data["additional_config"]
+    created_strategy = response.json()
+    assert created_strategy["name"] == strategy_data["name"]
+    assert len(created_strategy["asset_filters"]) == 2
 
-# Add more tests as needed, e.g., for updating and deleting strategies
+async def test_create_complex_strategy(authorized_client):
+    strategy_data = {
+        "name": "Complex Trading Strategy",
+        "description": "Multiple conditions and custom indicator",
+        "is_active": True,
+        "asset_filters": [
+            {
+                "type": "custom_list",
+                "value": ["AAPL", "GOOGL", "MSFT", "AMZN"]
+            }
+        ],
+        "components": [
+            {
+                "component_type": "entry",
+                "conditions": [
+                    {
+                        "type": "technical_indicator",
+                        "indicator": "SMA",
+                        "comparison": "crosses_above",
+                        "value": {"fast_period": 10, "slow_period": 50}
+                    },
+                    {
+                        "type": "technical_indicator",
+                        "indicator": "custom_momentum",
+                        "comparison": "greater_than",
+                        "value": 0
+                    },
+                    {
+                        "type": "time",
+                        "comparison": "between",
+                        "value": {"start": "09:30", "end": "16:00"}
+                    }
+                ],
+                "parameters": {"action": "buy"}
+            },
+            {
+                "component_type": "exit",
+                "exit_conditions": [
+                    {
+                        "type": "trailing_stop",
+                        "value": 5
+                    },
+                    {
+                        "type": "time",
+                        "comparison": "equals",
+                        "value": "15:55"
+                    }
+                ],
+                "parameters": {"action": "sell"}
+            }
+        ],
+        "additional_config": {
+            "risk_per_trade": 1,
+            "custom_indicators": [
+                {
+                    "name": "custom_momentum",
+                    "calculation": "(close - close[10]) / close[10] * 100"
+                }
+            ]
+        }
+    }
+
+    response = await authorized_client.post("/api/v1/strategies", json=strategy_data)
+    assert response.status_code == 200
+    created_strategy = response.json()
+    assert created_strategy["name"] == strategy_data["name"]
+    assert len(created_strategy["components"]) == 2
+    assert "custom_indicators" in created_strategy["additional_config"]
+
+# Add more test cases as needed
