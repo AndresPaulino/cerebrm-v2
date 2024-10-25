@@ -1,5 +1,4 @@
-# app/models/strategy.py
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
@@ -19,12 +18,14 @@ class ExitCondition(BaseModel):
 
 class StrategyComponentBase(BaseModel):
     component_type: str  # 'entry', 'exit'
-    conditions: Optional[List[Condition]] = []
-    exit_conditions: Optional[List[ExitCondition]] = []
-    parameters: Dict[str, Any]
+    conditions: Optional[List[Condition]] = Field(default_factory=list)
+    exit_conditions: Optional[List[ExitCondition]] = Field(default_factory=list)
+    parameters: Dict[str, Any] = Field(default_factory=dict)
 
 class StrategyComponent(StrategyComponentBase):
     id: int
+    
+    model_config = ConfigDict(from_attributes=True)
 
 class StrategyBase(BaseModel):
     name: str
@@ -32,7 +33,7 @@ class StrategyBase(BaseModel):
     is_active: bool = True
     asset_filters: List[AssetFilter]
     components: List[StrategyComponentBase]
-    additional_config: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    additional_config: Dict[str, Any] = Field(default_factory=dict)
 
 class StrategyCreate(StrategyBase):
     pass
@@ -43,6 +44,5 @@ class Strategy(StrategyBase):
     components: List[StrategyComponent]
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True  # This replaces orm_mode = True in Pydantic v2
+    
+    model_config = ConfigDict(from_attributes=True)

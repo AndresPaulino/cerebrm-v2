@@ -1,60 +1,79 @@
 # app/api/strategies.py
+
 from fastapi import APIRouter, Depends, HTTPException
-from typing import List
+from typing import List, Dict, Any
 from app.models.strategy import Strategy, StrategyCreate, StrategyComponent
 from app.db.database import get_db
 from app.api.auth import get_current_user
 from datetime import datetime, timezone
-
-router = APIRouter()
-
-from fastapi import APIRouter, Depends, HTTPException
-from typing import List
-from app.models.strategy import Strategy, StrategyCreate, StrategyComponent
-from app.db.database import get_db
-from app.api.auth import get_current_user
-from datetime import datetime, timezone
+from app.utils.json_encoder import json_serializer
 
 router = APIRouter()
 
 @router.post("/strategies", response_model=Strategy)
 async def create_strategy(strategy: StrategyCreate, current_user = Depends(get_current_user), db = Depends(get_db)):
     try:
-        new_strategy = strategy.dict()
-        new_strategy['user_id'] = current_user.user_id
-        new_strategy['created_at'] = datetime.now(timezone.utc)
-        new_strategy['updated_at'] = datetime.now(timezone.utc)
+        # Convert strategy to dict with serializable dates
+        strategy_dict = strategy.model_dump()
+        current_time = datetime.now(timezone.utc)
         
-        # Insert the strategy
-        strategy_result = db.table("strategies").insert({
-            "name": new_strategy['name'],
-            "description": new_strategy['description'],
-            "is_active": new_strategy['is_active'],
-            "user_id": new_strategy['user_id'],
-            "asset_filters": new_strategy['asset_filters'],
-            "additional_config": new_strategy['additional_config'],
-            "created_at": new_strategy['created_at'],
-            "updated_at": new_strategy['updated_at']
-        }).execute()
+        # Prepare the strategy data
+        db_strategy = {
+            "name": strategy_dict['name'],
+            "description": strategy_dict['description'],
+            "is_active": strategy_dict['is_active'],
+            "user_id": current_user.user_id,
+            "asset_filters": json_serializer(strategy_dict['asset_filters']),
+            "additional_config": json_serializer(strategy_dict.get('additional_config', {})),
+            "created_at": current_time.isoformat(),
+            "updated_at": current_time.isoformat()
+        }
         
+        # Insert strategy
+        strategy_result = db.table("strategies").insert(db_strategy).execute()
+        
+        if not strategy_result.data:
+            raise HTTPException(status_code=500, detail="Failed to create strategy")
+            
         strategy_id = strategy_result.data[0]['id']
         components = []
         
-        # Insert the components
-        for component in new_strategy['components']:
-            component_result = db.table("strategy_components").insert({
+        # Insert components
+        for component in strategy_dict['components']:
+            db_component = {
                 "strategy_id": strategy_id,
                 "component_type": component['component_type'],
-                "conditions": component.get('conditions', []),
-                "exit_conditions": component.get('exit_conditions', []),
-                "parameters": component['parameters']
-            }).execute()
-            components.append(StrategyComponent(**component_result.data[0]))
-    
-        return Strategy(**new_strategy, id=strategy_id, components=components)
+                "conditions": json_serializer(component.get('conditions', [])),
+                "exit_conditions": json_serializer(component.get('exit_conditions', [])),
+                "parameters": json_serializer(component.get('parameters', {}))
+            }
+            
+            component_result = db.table("strategy_components").insert(db_component).execute()
+            if component_result.data:
+                components.append(StrategyComponent(**{
+                    **component,
+                    'id': component_result.data[0]['id']
+                }))
+        
+        # Construct the complete strategy object
+        created_strategy = Strategy(
+            id=strategy_id,
+            user_id=current_user.user_id,
+            name=strategy_dict['name'],
+            description=strategy_dict['description'],
+            is_active=strategy_dict['is_active'],
+            asset_filters=strategy_dict['asset_filters'],
+            components=components,
+            additional_config=strategy_dict.get('additional_config', {}),
+            created_at=current_time,
+            updated_at=current_time
+        )
+        
+        return created_strategy
+        
     except Exception as e:
         print(f"Error creating strategy: {str(e)}")
-        print(f"Strategy data: {new_strategy}")
+        print(f"Strategy data: {strategy_dict}")
         import traceback
         print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Error creating strategy: {str(e)}")
